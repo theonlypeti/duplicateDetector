@@ -1,5 +1,4 @@
 import time as time_module
-start = time_module.perf_counter()
 from functools import lru_cache
 from tqdm import tqdm
 from multiprocessing import Pool, cpu_count
@@ -8,16 +7,18 @@ from random import randrange
 import imageio.v3 as iio
 import argparse
 import mylogger
+start = time_module.perf_counter()
 
 root = os.getcwd()
-VERSION = "1.0rc"
+VERSION = "1.0"
 parser = argparse.ArgumentParser(prog=f"duplicateDetector V{VERSION}", description='My duplicate image and video file detector.', epilog="Written by theonlypeti.")
 
 # parser.add_argument("--minimal", action="store_true", help="Quiet mode.")
-parser.add_argument("--path", action="store", help="Path to the folder to scan.")
+parser.add_argument("--path", action="store", help="Path to the folder to scan.", required=True)
+parser.add_argument("--remove", action="store_true", help="Prompts the user to delete the duplicates.")
+parser.add_argument("--date", action="store", help="Date and time (yyyy.mm.dd hh:mm), where files only added after this are checked for duplicates.")
 parser.add_argument("--debug", action="store_true", help="Enable debug mode.")
 parser.add_argument("--logfile", action="store_true", help="Turns on logging to a text file.")
-parser.add_argument("--remove", action="store_true", help="Prompts the user to delete the duplicates.")
 parser.add_argument("--no_video", action="store_true", help="Skips videos.")
 parser.add_argument("--profiling", action="store_true", help="Measures the runtime and outputs it to profile.prof.")
 args = parser.parse_args()
@@ -27,7 +28,7 @@ from mylogger import baselogger as logger
 
 
 # processes = cpu_count()
-mappa = args.path or r"Z:/KisPeti/SULI/ipari/p/pc/reddit"
+mappa = args.path #or r"Z:/KisPeti/SULI/ipari/p/pc/insta"
 
 
 @lru_cache(maxsize=50000) #turns out this does not really help lol
@@ -82,28 +83,58 @@ def compare(files: str):
         return
 
 
+# import hashlib
+#
+# def get_hash(file_path):
+#     with open(file_path, 'rb') as file:
+#         data = file.read()
+#     return hashlib.md5(data).hexdigest()
+#
+# def compare(files: str):
+#     f1, f2 = files.split(">")
+#     try:
+#         if get_hash(f1) == get_hash(f2):
+#             return f1, getsize(f1)
+#     except Exception as e:
+#         logger.error(f"Exception: {f1=},{f2=}\n{e=}")
+#         return
+
+
 def main():
     logger.info(f"Started scanning {mappa}.")
     if not args.remove:
         logger.warning("Not removing duplicates, only listing them. "
                        "Rerun with the --remove flag to be prompted to delete the duplicates.")
     os.chdir(mappa)
-    files = list(filter(os.path.isfile, os.listdir()))
-    logger.info(f"{len(files)} files found.")
+    if args.date:
+        logger.info(f"Only files added after {args.date} will be checked.")
+        try:
+            tmstmp = time_module.mktime(time_module.strptime(args.date, "%Y.%m.%d %H:%M"))
+        except ValueError:
+            tmstmp = time_module.mktime(time_module.strptime(args.date, "%Y.%m.%d"))
+
+        newfiles = list(filter(lambda f: os.path.getctime(f) > tmstmp, os.listdir()))
+        newsizes = {getsize(i) for i in newfiles}
+        logger.info(f"{len(newfiles)} files added after {args.date}.")
+        files = list(filter(lambda f: getsize(f) in newsizes, os.listdir()))
+        logger.debug(f"{len(newfiles)=}\n{len(newsizes)=}\n{newsizes=}\n{len(files)=}")
+    else:
+        files = list(filter(os.path.isfile, os.listdir()))
+    logger.info(f"{len(files)-1} files found.") #-1 because of the duos to compare, the users would be confused otherwise why the progress bar does not correspond to the number of files
 
     if args.no_video:
         files = list(filter(lambda f: not f.endswith(".mp4"), sorted(files, key=getsize, reverse=True)))
         logger.info(f"{len(files)} files kept.")
     else:
         files = sorted(files, key=getsize, reverse=True)
-    duos = [f"{f1}>{f2}" for f1, f2 in zip(files, files[1:])] #probably terrible? maybe im a genius and i just dont know it
+    duos = [f"{f1}>{f2}" for f1, f2 in zip(files, files[1:])] #probably terrible? i could just use a list of tuples
 
     logger.debug(f"{len(duos)} duos")
     logger.info(f"sorted in {time_module.perf_counter() - start}s")
 
     with Pool() as pool:
         results = list(tqdm(
-            pool.imap_unordered(compare, duos, chunksize=5000),
+            pool.imap_unordered(compare, duos, chunksize=20),
             total=len(duos),
             colour="CYAN",
             unit="files"
@@ -114,6 +145,7 @@ def main():
 
     logger.debug(f"{getsize.cache_info()}") #this is for the lru_cache, probably useless as all processes will have their own lru_cache
     logger.info(f"{len(dupes)} duplicates found. \n{totsize//1024} kB total size\n{totsize//1024/1024} MB total size")
+    logger.handlers[0].flush()
 
     if args.logfile:
         os.chdir(root)
