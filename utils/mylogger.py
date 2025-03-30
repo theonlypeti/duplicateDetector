@@ -3,6 +3,8 @@ from datetime import datetime
 from os import makedirs
 import coloredlogs
 
+from utils.SteelSeriesLoggerHandler import SteelSeriesHandler
+
 baselogger = logging.getLogger("Base")
 
 #formatting the colorlogger
@@ -21,9 +23,9 @@ def main(args):
             pass
         fl = logging.FileHandler(filename)
         fl.setFormatter(formatter)
-        fl.setLevel(5)
-        logging.addLevelName(5, "Message")
-        fl.addFilter(lambda rec: rec.levelno < 10)
+        # fl.setLevel(5)
+        # logging.addLevelName(5, "Message")
+        # fl.addFilter(lambda rec: rec.levelno < 10)
         baselogger.addHandler(fl)
 
     baselogger.setLevel(logging.DEBUG) #base is debug, so the file handler could catch debug msgs too
@@ -31,3 +33,7 @@ def main(args):
         coloredlogs.install(level=logging.DEBUG, logger=baselogger, fmt=fmt)
     else:
         coloredlogs.install(level=logging.INFO, logger=baselogger, fmt=fmt)
+
+    ssl = SteelSeriesHandler(engine_url="C:/ProgramData/SteelSeries")
+    ssl.setLevel(20)
+    baselogger.addHandler(ssl)

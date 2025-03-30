@@ -1,4 +1,5 @@
 import time as time_module
+from collections import defaultdict
 from functools import lru_cache
 from tqdm import tqdm
 from multiprocessing import Pool, cpu_count
@@ -6,11 +7,11 @@ import os
 from random import randrange
 import imageio.v3 as iio
 import argparse
-import mylogger
+import utils.mylogger as mylogger
 start = time_module.perf_counter()
 
 root = os.getcwd()
-VERSION = "1.0"
+VERSION = "1.1"
 parser = argparse.ArgumentParser(prog=f"duplicateDetector V{VERSION}", description='My duplicate image and video file detector.', epilog="Written by theonlypeti.")
 
 # parser.add_argument("--minimal", action="store_true", help="Quiet mode.")
@@ -21,14 +22,17 @@ parser.add_argument("--debug", action="store_true", help="Enable debug mode.")
 parser.add_argument("--logfile", action="store_true", help="Turns on logging to a text file.")
 parser.add_argument("--no_video", action="store_true", help="Skips videos.")
 parser.add_argument("--profiling", action="store_true", help="Measures the runtime and outputs it to profile.prof.")
+parser.add_argument("--number", action="store", help="Limit how many files to scan (benchmark).")
+parser.add_argument("--cpus", action="store", help="Limit how many processes to spin up (benchmark).")
+parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
 args = parser.parse_args()
 
 mylogger.main(args)  # initializing the logger
-from mylogger import baselogger as logger
+from utils.mylogger import baselogger as logger
 
 
 # processes = cpu_count()
-mappa = args.path #or r"Z:/KisPeti/SULI/ipari/p/pc/insta"
+mappa = args.path or r"Z:/KisPeti/SULI/ipari/p/pc/insta"
 
 
 @lru_cache(maxsize=50000) #turns out this does not really help lol
@@ -120,7 +124,15 @@ def main():
         logger.debug(f"{len(newfiles)=}\n{len(newsizes)=}\n{newsizes=}\n{len(files)=}")
     else:
         files = list(filter(os.path.isfile, os.listdir()))
-    logger.info(f"{len(files)-1} files found.") #-1 because of the duos to compare, the users would be confused otherwise why the progress bar does not correspond to the number of files
+        if args.number:
+            files = files[:int(args.number)]
+    logger.info(f"{len(files)-1} comparsions found.") #-1 because of the duos to compare, the users would be confused otherwise why the progress bar does not correspond to the number of files
+
+    if args.cpus:
+        cpus = int(args.cpus)
+    else:
+        cpus = cpu_count()
+
 
     if args.no_video:
         files = list(filter(lambda f: not f.endswith(".mp4"), sorted(files, key=getsize, reverse=True)))
@@ -132,9 +144,9 @@ def main():
     logger.debug(f"{len(duos)} duos")
     logger.info(f"sorted in {time_module.perf_counter() - start}s")
 
-    with Pool() as pool:
+    with Pool(processes=cpus) as pool:
         results = list(tqdm(
-            pool.imap_unordered(compare, duos, chunksize=20),
+            pool.imap_unordered(compare, duos, chunksize=100),
             total=len(duos),
             colour="CYAN",
             unit="files"
@@ -154,7 +166,13 @@ def main():
         os.chdir(mappa)
 
     if input("YES to print all ") == "YES":
-        print(*zip(dupes, sizes), sep="\n")
+        # print(*zip(dupes, sizes), sep="\n")
+        counter = defaultdict(int)
+        for i in dupes:
+            name = i.split("-")[0]
+            counter[name] += 1
+        print(*counter.items(), sep="\n")
+
 
     if args.remove:
         if input("YES to delete all ") == "YES":
